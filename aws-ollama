@@ -12,8 +12,26 @@ echo "=== Update system ==="
 sudo apt update
 sudo apt upgrade -y
 
+echo "=== Install pciutils (required for GPU detection) ==="
+sudo apt install -y pciutils
+
 echo "=== Install NVIDIA driver ==="
-sudo ubuntu-drivers install || true
+wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+
+GPU_ARCH=$(lspci -n | grep "10de:" | head -1 | awk '{print $3}' | cut -d: -f2 | cut -c1-2)
+echo "GPU PCI prefix detected: $GPU_ARCH"
+
+if [[ "$GPU_ARCH" =~ ^1[5-9a-f]$ ]]; then
+  echo "Legacy GPU (Pascal/Volta) — installing proprietary driver"
+  sudo ubuntu-drivers install
+else
+  echo "Modern GPU (Turing+) — installing open kernel module"
+  sudo apt install -y nvidia-open
+fi
+
+rm -f cuda-keyring_1.1-1_all.deb
 
 echo "=== Install packages ==="
 sudo apt install -y \
@@ -25,7 +43,6 @@ sudo apt install -y \
   ufw \
   nvtop \
   fastfetch \
-  nvidia-cuda-toolkit \
   certbot \
   python3-certbot-nginx
 
@@ -35,9 +52,7 @@ if [ -b "$MODEL_DISK" ]; then
     sudo mkfs.ext4 -F "$MODEL_DISK"
     sudo mkdir -p "$MODEL_DIR"
     sudo mount "$MODEL_DISK" "$MODEL_DIR"
-
     UUID=$(sudo blkid -s UUID -o value "$MODEL_DISK")
-
     if ! grep -q "$UUID" /etc/fstab; then
       echo "UUID=$UUID $MODEL_DIR ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
     fi
@@ -52,7 +67,6 @@ if [ ! -f /swapfile ]; then
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
   sudo swapon /swapfile
-
   if ! grep -q "/swapfile" /etc/fstab; then
     echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab
   fi
@@ -66,7 +80,6 @@ sudo mkdir -p "$MODEL_DIR/ollama"
 sudo chown -R ollama:ollama "$MODEL_DIR/ollama"
 
 sudo mkdir -p /etc/systemd/system/ollama.service.d
-
 sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<EOF
 [Service]
 Environment="OLLAMA_HOST=127.0.0.1:11434"
@@ -77,7 +90,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable ollama
 sudo systemctl restart ollama
 
-echo "=== Configure Nginx: tiarinadev ==="
+echo "=== Configure Nginx ==="
 sudo tee /etc/nginx/sites-available/tiarinadev > /dev/null <<EOF
 server {
     listen 80;
@@ -85,15 +98,12 @@ server {
 
     location / {
         proxy_pass http://localhost:11434;
-
         proxy_http_version 1.1;
         proxy_set_header Host localhost;
         proxy_set_header Origin "";
-
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 3600s;
@@ -104,7 +114,6 @@ EOF
 
 sudo ln -sf /etc/nginx/sites-available/tiarinadev /etc/nginx/sites-enabled/tiarinadev
 sudo rm -f /etc/nginx/sites-enabled/default
-
 sudo nginx -t
 sudo systemctl restart nginx
 
@@ -112,7 +121,7 @@ echo "=== Open firewall ==="
 sudo ufw allow OpenSSH || true
 sudo ufw allow 'Nginx Full' || true
 
-echo "=== Install SSL with Certbot ==="
+echo "=== Install SSL ==="
 sudo certbot --nginx \
   -d "$DOMAIN" \
   --non-interactive \
@@ -120,7 +129,6 @@ sudo certbot --nginx \
   -m "$EMAIL" \
   --redirect || true
 
-echo "=== Re-apply Nginx proxy config after Certbot ==="
 sudo nginx -t
 sudo systemctl reload nginx
 
@@ -128,22 +136,18 @@ echo "=== Status ==="
 df -h
 free -h
 fastfetch || true
-nvcc --version || true
-nvidia-smi || echo "NVIDIA driver installed, reboot likely required."
+nvidia-smi || echo "GPU belum aktif — reboot diperlukan"
 
 echo "=== Test endpoints ==="
 curl -s "http://localhost:11434/v1/models" | jq || true
-curl -s "https://${DOMAIN}/v1/models" | jq || true
 
+echo ""
 echo "=== Done ==="
 echo "Base URL: https://${DOMAIN}"
-echo "Models endpoint: https://${DOMAIN}/v1/models"
 echo ""
-echo "IMPORTANT:"
-echo "1. Pastikan Cloudflare DNS untuk domain ini mode DNS only, bukan proxied."
-echo "2. Reboot sekali setelah script selesai:"
-echo "   sudo reboot"
+echo "IMPORTANT: Reboot sekarang agar driver GPU aktif:"
+echo "  sudo reboot"
 echo ""
-echo "After reboot:"
-echo "nvidia-smi"
-echo "ollama pull qwen3:32b"
+echo "Setelah reboot:"
+echo "  nvidia-smi"
+echo "  ollama pull qwen3.6:27b"
