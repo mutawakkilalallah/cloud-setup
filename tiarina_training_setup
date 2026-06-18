@@ -44,32 +44,37 @@ echo "=== Mount data disk ==="
 
 sudo mkdir -p "$MOUNT_POINT"
 
-# Cek filesystem
-FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" || true)
-
-if [ -z "$FSTYPE" ]; then
-  echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
-  sudo mkfs.ext4 -F "$DISK"
+# Kalau disk atau mount point sudah aktif, jangan format
+if findmnt -S "$DISK" > /dev/null || findmnt -rn "$MOUNT_POINT" > /dev/null; then
+  echo "Disk $DISK sudah mounted/dipakai — skip format"
 else
-  echo "Disk $DISK sudah punya filesystem: $FSTYPE — skip format"
+  FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" || true)
+
+  if [ -z "$FSTYPE" ]; then
+    echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
+    sudo mkfs.ext4 -F "$DISK"
+  else
+    echo "Disk $DISK sudah punya filesystem: $FSTYPE — skip format"
+  fi
 fi
 
-UUID=$(sudo blkid -s UUID -o value "$DISK")
+UUID=$(sudo blkid -s UUID -o value "$DISK" || true)
 
 if [ -z "$UUID" ]; then
   echo "ERROR: UUID tidak ditemukan untuk $DISK"
+  echo "Cek dengan: lsblk -f"
   exit 1
 fi
 
 # Backup fstab
 sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
 
-# Bersihkan entry lama yang mungkin rusak
+# Bersihkan entry lama/rusak
 sudo sed -i \
   -e "\| $MOUNT_POINT |d" \
   -e "\|BLOCK_SIZE=|d" \
   -e "\|TYPE=|d" \
-  -e "\|^/dev/nvme|d" \
+  -e "\|^$DISK|d" \
   /etc/fstab
 
 # Tambahkan entry baru
@@ -96,6 +101,7 @@ ln -sfn "$MOUNT_POINT" "$HOME/data"
 echo ""
 echo "=== Disk Mounted ==="
 df -h | grep -E "Filesystem|$MOUNT_POINT"
+ls -la "$HOME" | grep "data"
 echo ""
 
 echo "=== Install Ollama ==="
