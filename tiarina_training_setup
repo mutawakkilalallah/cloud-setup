@@ -45,15 +45,28 @@ sudo apt install -y \
 echo "=== Mount data disk ==="
 sudo mkdir -p $MOUNT_POINT
 
+# Cek apakah disk sudah punya filesystem
+FSTYPE=$(sudo blkid -s TYPE -o value $DISK || true)
+
+if [ -z "$FSTYPE" ]; then
+  echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
+  sudo mkfs.ext4 -F $DISK
+else
+  echo "Disk $DISK sudah punya filesystem: $FSTYPE — skip format"
+fi
+
 UUID=$(sudo blkid -s UUID -o value $DISK)
+if [ -z "$UUID" ]; then
+  echo "ERROR: gagal mendapatkan UUID untuk $DISK"
+  exit 1
+fi
 
 grep -q "$UUID" /etc/fstab || \
-echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+  echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
 
 sudo systemctl daemon-reload
 sudo mount -a
 sudo chown -R ubuntu:ubuntu $MOUNT_POINT
-
 df -h
 
 echo "=== Install Ollama ==="
