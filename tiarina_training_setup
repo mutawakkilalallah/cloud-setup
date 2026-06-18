@@ -90,6 +90,9 @@ fi
 
 sudo chown -R ubuntu:ubuntu "$MOUNT_POINT"
 
+echo "=== Create symlink ~/data -> /data ==="
+ln -sfn "$MOUNT_POINT" "$HOME/data"
+
 echo ""
 echo "=== Disk Mounted ==="
 df -h | grep -E "Filesystem|$MOUNT_POINT"
