@@ -77,7 +77,7 @@ echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
 
 sudo systemctl daemon-reload
 
-if mountpoint -q "$MOUNT_POINT"; then
+if findmnt -rn "$MOUNT_POINT" > /dev/null; then
   echo "$MOUNT_POINT sudah mounted — skip mount"
 else
   sudo mount "$MOUNT_POINT"
