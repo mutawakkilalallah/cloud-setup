@@ -5,7 +5,7 @@ set -e
 # Prasyarat: setup.sh sudah dijalankan (repo sudah ter-clone) dan sudo reboot sudah dilakukan.
 
 REPO_DIR="${REPO_DIR:-$HOME/aina-nano}"
-AINA_RUN_ROOT="${AINA_RUN_ROOT:-/home/data/aina-runs}"
+AINA_RUN_ROOT="${AINA_RUN_ROOT:-/data/aina-runs}"
 
 echo "=== Verifikasi driver GPU ==="
 nvidia-smi
