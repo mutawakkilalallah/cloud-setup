@@ -13,8 +13,14 @@ nvidia-smi
 echo "=== Siapkan folder hasil training ==="
 echo "AINA_RUN_ROOT=$AINA_RUN_ROOT"
 
+RUN_PARENT="$(dirname "$AINA_RUN_ROOT")"
+
+sudo mkdir -p "$RUN_PARENT"
+sudo chown "$USER:$USER" "$RUN_PARENT"
+
 sudo mkdir -p "$AINA_RUN_ROOT"
 sudo chown -R "$USER:$USER" "$AINA_RUN_ROOT"
+
 
 mkdir -p \
   "$AINA_RUN_ROOT/data/raw" \
