@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-DISK="/dev/nvme1n1"
+DISK="/dev/nvme0n1"
 MOUNT_POINT="/data"
 MODEL_DIR="/data/models"
 # Repo (pakai HTTPS biar jalan tanpa setup SSH di server baru).
