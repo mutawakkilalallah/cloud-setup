@@ -1,10 +1,8 @@
 #!/bin/bash
 set -e
-
 DISK="/dev/nvme1n1"
 MOUNT_POINT="/data"
 MODEL_DIR="/data/models"
-
 # Repo (pakai HTTPS biar jalan tanpa setup SSH di server baru).
 # Kalau SSH GitHub sudah diset, ganti ke: git@github.com:tiarina-id/aina-nano.git
 REPO_URL="https://github.com/tiarina-id/aina-nano.git"
@@ -43,45 +41,60 @@ sudo apt install -y \
   build-essential
 
 echo "=== Mount data disk ==="
-sudo mkdir -p $MOUNT_POINT
+sudo mkdir -p "$MOUNT_POINT"
 
 # Cek apakah disk sudah punya filesystem
-FSTYPE=$(sudo blkid -s TYPE -o value $DISK || true)
+FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" 2>/dev/null || true)
 
 if [ -z "$FSTYPE" ]; then
   echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
-  sudo mkfs.ext4 -F $DISK
+  sudo mkfs.ext4 -F "$DISK"
 else
   echo "Disk $DISK sudah punya filesystem: $FSTYPE — skip format"
 fi
 
-UUID=$(sudo blkid -s UUID -o value $DISK)
+UUID=$(sudo blkid -s UUID -o value "$DISK")
 if [ -z "$UUID" ]; then
   echo "ERROR: gagal mendapatkan UUID untuk $DISK"
   exit 1
 fi
 
-# Bersihkan baris fstab lama/rusak yang mengarah ke $MOUNT_POINT
-# (misal dari percobaan sebelumnya yang gagal/variabel kosong)
-sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
-sudo sed -i.bak "\| $MOUNT_POINT |d" /etc/fstab
+# Backup fstab dulu sebelum diubah
+sudo cp /etc/fstab "/etc/fstab.bak.$(date +%s)"
 
-# Tambahkan baris fstab yang benar
-echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+# Bersihkan SEMUA baris fstab yang menyebut disk ini ATAU mount point ini,
+# baik yang valid maupun yang rusak/duplikat dari percobaan sebelumnya.
+# Pakai grep -v supaya tidak tergantung sed regex/delimiter yang bisa salah match.
+sudo cp /etc/fstab /etc/fstab.tmp
+grep -v -E "(^[[:space:]]*UUID=$UUID[[:space:]])|([[:space:]]$MOUNT_POINT[[:space:]])" /etc/fstab.tmp | sudo tee /etc/fstab > /dev/null
+sudo rm -f /etc/fstab.tmp
+
+# Tambahkan baris fstab yang benar (satu baris, bersih)
+echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab > /dev/null
+
+echo "--- isi /etc/fstab setelah dibersihkan ---"
+cat /etc/fstab
+echo "-------------------------------------------"
 
 sudo systemctl daemon-reload
 
-# mount -a bisa return non-zero kalau ada entry fstab lain yang invalid,
-# tapi kita tidak mau itu mematikan seluruh script
-sudo mount -a || echo "WARNING: mount -a melaporkan masalah, cek manual jika perlu"
+# mount -a bisa return non-zero kalau ada entry fstab LAIN yang invalid,
+# tapi kita tidak mau itu mematikan seluruh script di titik ini.
+sudo mount -a || echo "WARNING: mount -a melaporkan masalah pada entry lain, lanjut cek target kita sendiri"
 
-# Pastikan target disk benar-benar termount, ini yang jadi syarat lanjut
-if ! mountpoint -q $MOUNT_POINT; then
-  echo "ERROR: $MOUNT_POINT gagal di-mount"
+# Kalau mount point kita spesifik belum ke-mount lewat mount -a, coba mount manual langsung
+if ! mountpoint -q "$MOUNT_POINT"; then
+  echo "Mencoba mount manual langsung ke $MOUNT_POINT..."
+  sudo mount "$DISK" "$MOUNT_POINT" || true
+fi
+
+# Validasi akhir: ini yang benar-benar menentukan lanjut atau berhenti
+if ! mountpoint -q "$MOUNT_POINT"; then
+  echo "ERROR: $MOUNT_POINT gagal di-mount. Cek manual dengan: lsblk -f ; cat /etc/fstab"
   exit 1
 fi
 
-sudo chown -R ubuntu:ubuntu $MOUNT_POINT
+sudo chown -R ubuntu:ubuntu "$MOUNT_POINT"
 df -h
 
 echo "=== Install Ollama ==="
@@ -90,14 +103,12 @@ curl -fsSL https://ollama.com/install.sh | sh
 echo "=== Configure Ollama (models di $MODEL_DIR) ==="
 sudo mkdir -p "$MODEL_DIR"
 sudo chown -R ollama:ollama "$MODEL_DIR"
-
 sudo mkdir -p /etc/systemd/system/ollama.service.d
 sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<EOF
 [Service]
 Environment="OLLAMA_HOST=127.0.0.1:11434"
 Environment="OLLAMA_MODELS=$MODEL_DIR"
 EOF
-
 sudo systemctl daemon-reload
 sudo systemctl enable ollama
 sudo systemctl restart ollama
@@ -115,4 +126,3 @@ echo "  sudo reboot"
 echo ""
 echo "Setelah reboot, verifikasi GPU lalu jalankan setup tahap 2:"
 echo "  nvidia-smi"
-echo "  ./setup_post.sh"
