@@ -41,10 +41,11 @@ sudo apt install -y \
   build-essential
 
 echo "=== Mount data disk ==="
+
 sudo mkdir -p "$MOUNT_POINT"
 
-# Cek apakah disk sudah punya filesystem
-FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" 2>/dev/null || true)
+# Cek filesystem
+FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" || true)
 
 if [ -z "$FSTYPE" ]; then
   echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
@@ -54,48 +55,42 @@ else
 fi
 
 UUID=$(sudo blkid -s UUID -o value "$DISK")
+
 if [ -z "$UUID" ]; then
-  echo "ERROR: gagal mendapatkan UUID untuk $DISK"
+  echo "ERROR: UUID tidak ditemukan untuk $DISK"
   exit 1
 fi
 
-# Backup fstab dulu sebelum diubah
-sudo cp /etc/fstab "/etc/fstab.bak.$(date +%s)"
+# Backup fstab
+sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
 
-# Bersihkan SEMUA baris fstab yang menyebut disk ini ATAU mount point ini,
-# baik yang valid maupun yang rusak/duplikat dari percobaan sebelumnya.
-# Pakai grep -v supaya tidak tergantung sed regex/delimiter yang bisa salah match.
-sudo cp /etc/fstab /etc/fstab.tmp
-grep -v -E "(^[[:space:]]*UUID=$UUID[[:space:]])|([[:space:]]$MOUNT_POINT[[:space:]])" /etc/fstab.tmp | sudo tee /etc/fstab > /dev/null
-sudo rm -f /etc/fstab.tmp
+# Bersihkan entry lama yang mungkin rusak
+sudo sed -i \
+  -e "\| $MOUNT_POINT |d" \
+  -e "\|BLOCK_SIZE=|d" \
+  -e "\|TYPE=|d" \
+  -e "\|^/dev/nvme|d" \
+  /etc/fstab
 
-# Tambahkan baris fstab yang benar (satu baris, bersih)
+# Tambahkan entry baru
 echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab > /dev/null
-
-echo "--- isi /etc/fstab setelah dibersihkan ---"
-cat /etc/fstab
-echo "-------------------------------------------"
 
 sudo systemctl daemon-reload
 
-# mount -a bisa return non-zero kalau ada entry fstab LAIN yang invalid,
-# tapi kita tidak mau itu mematikan seluruh script di titik ini.
-sudo mount -a || echo "WARNING: mount -a melaporkan masalah pada entry lain, lanjut cek target kita sendiri"
+# Mount langsung tanpa mount -a
+sudo mount "$MOUNT_POINT"
 
-# Kalau mount point kita spesifik belum ke-mount lewat mount -a, coba mount manual langsung
 if ! mountpoint -q "$MOUNT_POINT"; then
-  echo "Mencoba mount manual langsung ke $MOUNT_POINT..."
-  sudo mount "$DISK" "$MOUNT_POINT" || true
-fi
-
-# Validasi akhir: ini yang benar-benar menentukan lanjut atau berhenti
-if ! mountpoint -q "$MOUNT_POINT"; then
-  echo "ERROR: $MOUNT_POINT gagal di-mount. Cek manual dengan: lsblk -f ; cat /etc/fstab"
+  echo "ERROR: $MOUNT_POINT gagal di-mount"
   exit 1
 fi
 
 sudo chown -R ubuntu:ubuntu "$MOUNT_POINT"
-df -h
+
+echo ""
+echo "=== Disk Mounted ==="
+df -h | grep -E "Filesystem|$MOUNT_POINT"
+echo ""
 
 echo "=== Install Ollama ==="
 curl -fsSL https://ollama.com/install.sh | sh
