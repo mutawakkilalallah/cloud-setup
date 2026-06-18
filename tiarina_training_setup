@@ -77,8 +77,11 @@ echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
 
 sudo systemctl daemon-reload
 
-# Mount langsung tanpa mount -a
-sudo mount "$MOUNT_POINT"
+if mountpoint -q "$MOUNT_POINT"; then
+  echo "$MOUNT_POINT sudah mounted — skip mount"
+else
+  sudo mount "$MOUNT_POINT"
+fi
 
 if ! mountpoint -q "$MOUNT_POINT"; then
   echo "ERROR: $MOUNT_POINT gagal di-mount"
