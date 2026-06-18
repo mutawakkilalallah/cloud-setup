@@ -41,51 +41,51 @@ sudo apt install -y \
   build-essential
 
 echo "=== Mount data disk ==="
-
 sudo mkdir -p "$MOUNT_POINT"
 
-# Kalau disk atau mount point sudah aktif, jangan format
-if findmnt -S "$DISK" > /dev/null || findmnt -rn "$MOUNT_POINT" > /dev/null; then
-  echo "Disk $DISK sudah mounted/dipakai — skip format"
-else
-  FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" || true)
-
-  if [ -z "$FSTYPE" ]; then
-    echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
-    sudo mkfs.ext4 -F "$DISK"
-  else
-    echo "Disk $DISK sudah punya filesystem: $FSTYPE — skip format"
-  fi
-fi
-
-UUID=$(sudo blkid -s UUID -o value "$DISK" || true)
-
-if [ -z "$UUID" ]; then
-  echo "ERROR: UUID tidak ditemukan untuk $DISK"
-  echo "Cek dengan: lsblk -f"
-  exit 1
-fi
-
-# Backup fstab
-sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
-
-# Bersihkan entry lama/rusak
-sudo sed -i \
-  -e "\| $MOUNT_POINT |d" \
-  -e "\|BLOCK_SIZE=|d" \
-  -e "\|TYPE=|d" \
-  -e "\|^$DISK|d" \
-  /etc/fstab
-
-# Tambahkan entry baru
-echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab > /dev/null
-
-sudo systemctl daemon-reload
-
+ALREADY_MOUNTED=false
 if findmnt -rn "$MOUNT_POINT" > /dev/null; then
-  echo "$MOUNT_POINT sudah mounted — skip mount"
-else
-  sudo mount "$MOUNT_POINT"
+  ALREADY_MOUNTED=true
+  echo "$MOUNT_POINT sudah mounted — lewati format, fstab, dan mount"
+fi
+
+if [ "$ALREADY_MOUNTED" = false ]; then
+
+  if findmnt -S "$DISK" > /dev/null; then
+    echo "Disk $DISK sudah dipakai (mounted di tempat lain) — skip format"
+  else
+    FSTYPE=$(sudo blkid -s TYPE -o value "$DISK" 2>/dev/null || true)
+    if [ -z "$FSTYPE" ]; then
+      echo "Disk $DISK belum punya filesystem — formatting ke ext4..."
+      sudo mkfs.ext4 -F "$DISK" || { echo "ERROR: mkfs.ext4 gagal pada $DISK"; exit 1; }
+    else
+      echo "Disk $DISK sudah punya filesystem: $FSTYPE — skip format"
+    fi
+  fi
+
+  UUID=$(sudo blkid -s UUID -o value "$DISK" 2>/dev/null || true)
+  if [ -z "$UUID" ]; then
+    echo "ERROR: UUID tidak ditemukan untuk $DISK"
+    echo "Cek dengan: lsblk -f"
+    exit 1
+  fi
+
+  # Backup fstab
+  sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
+
+  # Bersihkan entry lama/rusak
+  sudo sed -i \
+    -e "\| $MOUNT_POINT |d" \
+    -e "\|BLOCK_SIZE=|d" \
+    -e "\|TYPE=|d" \
+    -e "\|^$DISK|d" \
+    /etc/fstab
+
+  # Tambahkan entry baru
+  echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab > /dev/null
+  sudo systemctl daemon-reload
+
+  sudo mount "$MOUNT_POINT" || { echo "ERROR: sudo mount $MOUNT_POINT gagal"; exit 1; }
 fi
 
 if ! mountpoint -q "$MOUNT_POINT"; then
@@ -94,7 +94,6 @@ if ! mountpoint -q "$MOUNT_POINT"; then
 fi
 
 sudo chown -R ubuntu:ubuntu "$MOUNT_POINT"
-
 echo "=== Create symlink ~/data -> /data ==="
 ln -sfn "$MOUNT_POINT" "$HOME/data"
 
