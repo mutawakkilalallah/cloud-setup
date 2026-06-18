@@ -61,11 +61,26 @@ if [ -z "$UUID" ]; then
   exit 1
 fi
 
-grep -q "$UUID" /etc/fstab || \
-  echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+# Bersihkan baris fstab lama/rusak yang mengarah ke $MOUNT_POINT
+# (misal dari percobaan sebelumnya yang gagal/variabel kosong)
+sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
+sudo sed -i.bak "\| $MOUNT_POINT |d" /etc/fstab
+
+# Tambahkan baris fstab yang benar
+echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
 
 sudo systemctl daemon-reload
-sudo mount -a
+
+# mount -a bisa return non-zero kalau ada entry fstab lain yang invalid,
+# tapi kita tidak mau itu mematikan seluruh script
+sudo mount -a || echo "WARNING: mount -a melaporkan masalah, cek manual jika perlu"
+
+# Pastikan target disk benar-benar termount, ini yang jadi syarat lanjut
+if ! mountpoint -q $MOUNT_POINT; then
+  echo "ERROR: $MOUNT_POINT gagal di-mount"
+  exit 1
+fi
+
 sudo chown -R ubuntu:ubuntu $MOUNT_POINT
 df -h
 
