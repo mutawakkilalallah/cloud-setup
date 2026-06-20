@@ -14,24 +14,6 @@ sudo apt upgrade -y
 echo "=== Install pciutils (required for GPU detection) ==="
 sudo apt install -y pciutils
 
-echo "=== Install NVIDIA driver ==="
-wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
-sudo apt update
-
-GPU_ARCH=$(lspci -n | grep "10de:" | head -1 | awk '{print $3}' | cut -d: -f2 | cut -c1-2)
-echo "GPU PCI prefix detected: $GPU_ARCH"
-
-if [[ "$GPU_ARCH" =~ ^1[5-9a-f]$ ]]; then
-  echo "Legacy GPU (Pascal/Volta) — installing proprietary driver"
-  sudo ubuntu-drivers install
-else
-  echo "Modern GPU (Turing+) — installing open kernel module"
-  sudo apt install -y nvidia-open
-fi
-
-rm -f cuda-keyring_1.1-1_all.deb
-
 echo "=== Install packages ==="
 sudo apt install -y \
   curl \
