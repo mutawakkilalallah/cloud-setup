@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+sudo apt update
+sudo apt upgrade -y
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu${1:-24}04/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install cuda-toolkit -y
+sudo apt install nvidia-open -y
+sudo apt install nvidia-gds -y
+sudo apt install nvidia-fabricmanager -y
+sudo systemctl enable nvidia-fabricmanager
+sudo systemctl enable nvidia-persistenced
