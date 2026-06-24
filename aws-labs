@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-MOUNT_DISK="/dev/nvme0n1"
+MOUNT_DISK="/dev/${1:-nvme1n1}"
 MOUNT_DIR="/mnt"
-SWAP_SIZE="${1:-8G}"
+SWAP_SIZE="${2:-8G}"
 
 echo "=== Update system ==="
 sudo apt update
