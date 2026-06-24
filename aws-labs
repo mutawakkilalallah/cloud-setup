@@ -1,0 +1,70 @@
+#!/bin/bash
+set -e
+
+MOUNT_DISK="/dev/nvme0n1"
+MOUNT_DIR="/mnt"
+SWAP_SIZE="${1:-8G}"
+
+export PATH=${PATH}:/usr/local/cuda-13.0/bin
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/cuda-13.0/lib64
+
+echo "=== Update system ==="
+sudo apt update
+sudo apt upgrade -y
+
+echo "=== Install packages ==="
+sudo apt install -y \
+  jq \
+  nvtop
+
+echo "=== Setup local NVMe for Ollama models ==="
+if [ -b "$MOUNT_DISK" ]; then
+  if ! mount | grep -q "$MOUNT_DIR"; then
+    sudo mkfs.ext4 -F "$MOUNT_DISK"
+    sudo mkdir -p "$MOUNT_DIR"
+    sudo mount "$MOUNT_DISK" "$MOUNT_DIR"
+    UUID=$(sudo blkid -s UUID -o value "$MOUNT_DISK")
+    if ! grep -q "$UUID" /etc/fstab; then
+      echo "UUID=$UUID $MOUNT_DIR ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+    fi
+  fi
+else
+  echo "WARNING: $MOUNT_DISK not found, skipping model disk setup"
+fi
+
+echo "=== Create swap ${SWAP_SIZE} ==="
+if [ ! -f /swapfile ]; then
+  sudo fallocate -l "$SWAP_SIZE" /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  if ! grep -q "/swapfile" /etc/fstab; then
+    echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab
+  fi
+fi
+
+echo "=== Install Ollama ==="
+curl -fsSL https://ollama.com/install.sh | sh
+
+echo "=== Configure Ollama ==="
+sudo mkdir -p "$MOUNT_DIR/models/ollama"
+sudo chown -R ollama:ollama "$MOUNT_DIR/models/ollama"
+
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<EOF
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+Environment="OLLAMA_MODELS=$MOUNT_DIR/models/ollama"
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable ollama
+sudo systemctl restart ollama
+
+echo "=== Status ==="
+df -h
+free -h
+nvidia-smi || echo "GPU belum aktif — reboot diperlukan"
+
+echo "=== Test endpoints ==="
+curl -s "http://localhost:11434/v1/models" | jq || true
